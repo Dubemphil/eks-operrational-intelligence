@@ -1,0 +1,111 @@
+# Production Robusta OSS Helm Values for AWS EKS Operational Intelligence Platform
+clusterName: "omnipulse-eks-prod"
+isSmallCluster: false
+
+runner:
+  sendAdditionalTelemetry: false
+  serviceAccount:
+    create: true
+    name: "robusta-runner-service-account"
+    annotations:
+      eks.amazonaws.com/role-arn: "arn:aws:iam::${AWS_ACCOUNT_ID}:role/omnipulse-robusta-runner-role"
+  
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1024Mi
+
+rbac:
+  create: true
+
+globalConfig:
+  cluster_name: "omnipulse-eks-prod"
+  signing_key: "robusta-oss-internal"
+  account_id: "operational-intelligence"
+  aiops_provider: "aws"
+  aws_region: "us-east-1"
+  bedrock_model_id: "anthropic.claude-3-5-haiku-20241022-v1:0"
+  dynamodb_audit_table: "omnipulse_remediation_audit"
+  slack_channel: "operational-intelligence"
+  prometheus_url: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
+  alertmanager_url: "http://kube-prometheus-stack-alertmanager.monitoring.svc.cluster.local:9093"
+
+sinksConfig:
+  - slack_sink:
+      name: slack_triage
+      slack_channel: "operational-intelligence"
+      api_key: "${SLACK_BOT_TOKEN}"
+      notify_on_eval: true
+
+customPlaybooks:
+  # Autonomous Self-Healing for CrashLoopBackOff Workloads
+  - triggers:
+      - on_pod_crash_loop:
+          namespace_prefix: "omnipulse-"
+          rate_limit: 300
+    actions:
+      - restart_loop_reporter: {}
+      - rollout_restart: {}
+
+  # Failure Mode 1: Deadlocked / Stalled Consumer (emailservice)
+  - triggers:
+      - on_prometheus_alert:
+          alert_name: "ConsumerTriageStalled"
+      - on_prometheus_alert:
+          alert_name: "OldestUnackedMessageAgeHigh"
+    actions:
+      - robusta_playbooks.stalled_consumer_playbook:
+          target_deployment: "emailservice"
+          target_namespace: "omnipulse-aws-dev"
+          max_stalled_seconds: 120
+          auto_restart_safe: true
+
+  # Failure Mode 2: Amazon SQS DLQ Backpressure & Poison Pills
+  - triggers:
+      - on_prometheus_alert:
+          alert_name: "PubSubDLQBackpressure"
+      - on_prometheus_alert:
+          alert_name: "DeadLetterQueueSurge"
+    actions:
+      - robusta_playbooks.dlq_poison_pill_playbook:
+          target_subscription: "consumer-triage-dlq"
+          quarantine_bucket: "s3://omnipulse-quarantine-prod"
+          backoff_cooldown_seconds: 60
+
+  # Failure Mode 3: Amazon Bedrock Quota Backoff
+  - triggers:
+      - on_prometheus_alert:
+          alert_name: "VertexAIQuotaExhausted"
+      - on_prometheus_alert:
+          alert_name: "RateLimit429Surge"
+    actions:
+      - robusta_playbooks.vertex_quota_backoff_playbook:
+          target_deployment: "paymentservice"
+          target_namespace: "omnipulse-aws-dev"
+          cooldown_window_seconds: 180
+          scale_down_step: 1
+
+  # Failure Mode 4: Storefront HTTP 5xx Outage Surge Auto-Remediation
+  - triggers:
+      - on_prometheus_alert:
+          alert_name: "FrontendHTTP5xxRateHigh"
+    actions:
+      - rollout_restart: {}
+
+  # Failure Mode 5: Proactive Memory Saturation Prevention (Pre-OOMKill)
+  - triggers:
+      - on_prometheus_alert:
+          alert_name: "ContainerMemoryNearLimit"
+    actions:
+      - rollout_restart: {}
+
+  # Failure Mode 6: Proactive CPU Saturation Remediation
+  - triggers:
+      - on_prometheus_alert:
+          alert_name: "ContainerCPUNearLimit"
+    actions:
+      - rollout_restart: {}
+

@@ -1,0 +1,29 @@
+# OmniPulse AWS EKS Production Workloads Patch
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  replicas: 4
+  template:
+    spec:
+      containers:
+      - name: server
+        env:
+        - name: ENV_PLATFORM
+          value: "aws-eks-prod"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-external
+spec:
+  type: NodePort
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgenerator
+spec:
+  replicas: 2
+

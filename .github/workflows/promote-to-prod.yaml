@@ -1,0 +1,81 @@
+name: Promote Dev to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_image:
+        description: 'Image digest/tag to promote (leave empty to promote current dev version)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write # Required to commit and push changes to gitops/prod
+
+jobs:
+  promote:
+    name: 🚀 Promote Dev to Production
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Kustomize
+        uses: imranismail/setup-kustomize@v3
+
+      - name: Resolve Image Reference
+        id: resolve
+        run: |
+          USER_INPUT="${{ github.event.inputs.target_image }}"
+          if [ -n "$USER_INPUT" ]; then
+            echo "Using user-specified image: $USER_INPUT"
+            echo "image=$USER_INPUT" >> $GITHUB_OUTPUT
+          else
+            echo "Detecting current image from gitops/dev/kustomization.yaml..."
+            DEV_IMAGE=$(python3 -c "
+import re
+with open('gitops/dev/kustomization.yaml') as f:
+    content = f.read()
+match_name = re.search(r'newName:\s*([^\s]+)', content)
+match_digest = re.search(r'digest:\s*([^\s]+)', content)
+match_tag = re.search(r'newTag:\s*([^\s]+)', content)
+new_name = match_name.group(1) if match_name else ''
+digest = match_digest.group(1) if match_digest else None
+tag = match_tag.group(1) if match_tag else None
+target = f'{new_name}@{digest}' if digest else (f'{new_name}:{tag}' if tag else new_name)
+print(target)
+")
+            if [ -z "$DEV_IMAGE" ]; then
+              echo "❌ Error: Could not determine image from gitops/dev"
+              exit 1
+            fi
+            echo "Detected Dev Image: $DEV_IMAGE"
+            echo "image=$DEV_IMAGE" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update Production GitOps Manifest
+        run: |
+          TARGET="${{ steps.resolve.outputs.image }}"
+          echo "Promoting image to Production: $TARGET"
+          
+          cd gitops/prod
+          kustomize edit set image app="$TARGET"
+          cd ../..
+
+          echo "Diff in gitops/prod/kustomization.yaml:"
+          git diff gitops/prod/kustomization.yaml
+
+      - name: Commit and Push to GitOps
+        run: |
+          TARGET="${{ steps.resolve.outputs.image }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          # Check if there are changes to commit
+          if git diff --quiet gitops/prod/kustomization.yaml; then
+            echo "ℹ️ No changes detected. Production is already up to date with Dev."
+          else
+            git commit -am "chore(gitops): promote dev image to prod ($TARGET) [skip ci]"
+            git push
+            echo "✅ Successfully promoted $TARGET to production!"
+          fi
+

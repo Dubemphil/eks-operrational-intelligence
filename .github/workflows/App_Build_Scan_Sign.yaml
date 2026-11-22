@@ -1,0 +1,85 @@
+name: App CI (Build, Scan & Sign)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/App_Build_Scan_Sign.yaml'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions UI
+
+permissions:
+  contents: write      # Needed to update gitops/ image tag
+  id-token: write      # Needed for AWS OIDC & Keyless Cosign
+  security-events: write
+
+jobs:
+  build-scan-sign:
+    name: 🛡️ Build, Scan & Sign Container
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run Diagnostic Unit Tests
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r src/robusta-playbooks/requirements.txt || true
+          python -m unittest discover -s tests -p "test_*.py"
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_CI_ROLE_ARN || secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'eu-north-1' }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push Image
+        id: build
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          REPOSITORY: ${{ vars.ECR_REPOSITORY || 'omnipulse/frontend' }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $REGISTRY/$REPOSITORY:$IMAGE_TAG ./src
+          docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $REGISTRY/$REPOSITORY:$IMAGE_TAG)
+          echo "image_digest=$DIGEST" >> $GITHUB_OUTPUT
+
+      - name: Run Trivy Vulnerability Scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.build.outputs.image_digest }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3.7.0
+
+      - name: Sign Container Digest (Keyless OIDC)
+        run: cosign sign --yes ${{ steps.build.outputs.image_digest }}
+
+      - name: Setup Kustomize
+        uses: imranismail/setup-kustomize@v3
+
+      - name: Update Dev GitOps Manifest
+        run: |
+          # Updates image digest in gitops/dev/kustomization.yaml and pushes
+          cd gitops/dev
+          kustomize edit set image app=${{ steps.build.outputs.image_digest }}
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(gitops): deploy ${{ github.sha }} to dev [skip ci]"
+          git push
+

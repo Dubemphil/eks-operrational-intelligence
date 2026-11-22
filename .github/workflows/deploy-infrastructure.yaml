@@ -1,0 +1,213 @@
+name: AWS EKS Platform Deployment
+run-name: >-
+  ${{ github.event_name == 'workflow_dispatch' && format('{0} [{1}] by @{2}', inputs.action == 'destroy' && '💥 DESTROY' || '🚀 APPLY', inputs.environment, github.actor) || format('🚀 Auto-Apply [dev] - {0}', github.event.head_commit.message) }}
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'terraform/**'
+      - 'k8s/**'
+      - 'gitops/**'
+      - '.github/workflows/deploy-infrastructure.yaml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment'
+        required: true
+        type: choice
+        default: 'dev'
+        options:
+          - dev
+          - prod
+      action:
+        description: 'Terraform Action'
+        required: true
+        type: choice
+        default: 'apply'
+        options:
+          - apply
+          - destroy
+
+permissions:
+  id-token: write   # Required for AWS keyless OIDC authentication
+  contents: read
+
+jobs:
+  validate:
+    name: 🧪 Lint & Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r src/robusta-playbooks/requirements.txt || true
+
+      - name: Run AIOps Diagnostic Unit Tests
+        run: |
+          python -m unittest discover -s tests -p "test_*.py"
+
+      - name: Setup Kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.31.0"
+
+      - name: Validate Kustomize Overlays
+        run: |
+          kubectl kustomize k8s/overlays/local > /dev/null
+          kubectl kustomize k8s/overlays/aws-dev > /dev/null
+          kubectl kustomize k8s/overlays/aws-prod > /dev/null
+          echo "✅ All Kustomize overlays (local, aws-dev, aws-prod) compiled successfully"
+
+  terraform-apply:
+    name: ${{ (inputs.action == 'destroy' && '💥 Terraform Destroy') || '🏗️ Terraform Apply' }} (${{ inputs.environment || 'dev' }})
+    needs: validate
+    runs-on: ubuntu-latest
+    outputs:
+      target_env: ${{ inputs.environment || 'dev' }}
+      cluster_name: ${{ steps.tf-outputs.outputs.cluster_name }}
+      alb_role_arn: ${{ steps.tf-outputs.outputs.alb_role_arn }}
+      vpc_id: ${{ steps.tf-outputs.outputs.vpc_id }}
+      robusta_role_arn: ${{ steps.tf-outputs.outputs.robusta_role_arn }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_CI_ROLE_ARN || secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'eu-north-1' }}
+          role-session-name: GitHubActions-Terraform-${{ inputs.action == 'destroy' && 'Destroy' || 'Apply' }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.8.0"
+
+      - name: Terraform Format Check
+        run: |
+          terraform fmt -check -recursive terraform/aws
+
+      - name: Terraform Init & Apply / Destroy
+        working-directory: terraform/aws/environments/${{ inputs.environment || 'dev' }}
+        run: |
+          TARGET_ENV="${{ inputs.environment || 'dev' }}"
+          ACTION="${{ inputs.action || 'apply' }}"
+          echo "Executing Terraform action [$ACTION] for environment: $TARGET_ENV"
+          INIT_ARGS=(
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}"
+            -backend-config="key=environments/${TARGET_ENV}/terraform.tfstate"
+            -backend-config="region=${{ vars.AWS_REGION || secrets.AWS_REGION || 'eu-north-1' }}"
+          )
+          if [ -n "${{ secrets.TF_LOCK_TABLE }}" ]; then
+            INIT_ARGS+=(-backend-config="dynamodb_table=${{ secrets.TF_LOCK_TABLE }}")
+          fi
+          terraform init "${INIT_ARGS[@]}"
+          
+          if [ "$ACTION" = "destroy" ]; then
+            echo "⚠️ INITIATING INFRASTRUCTURE DESTRUCTION FOR: $TARGET_ENV"
+            terraform destroy -auto-approve
+          else
+            echo "🚀 APPLYING INFRASTRUCTURE FOR: $TARGET_ENV"
+            terraform apply -auto-approve
+          fi
+
+      - name: Export Terraform Outputs
+        id: tf-outputs
+        if: (inputs.action || 'apply') == 'apply'
+        working-directory: terraform/aws/environments/${{ inputs.environment || 'dev' }}
+        run: |
+          echo "cluster_name=$(terraform output -raw eks_cluster_name)" >> $GITHUB_OUTPUT
+          echo "alb_role_arn=$(terraform output -raw aws_load_balancer_controller_role_arn)" >> $GITHUB_OUTPUT
+          echo "vpc_id=$(terraform output -raw vpc_id)" >> $GITHUB_OUTPUT
+          echo "robusta_role_arn=$(terraform output -raw robusta_runner_role_arn)" >> $GITHUB_OUTPUT
+
+  deploy-platform:
+    name: 🚀 Deploy Platform & Dashboards (${{ needs.terraform-apply.outputs.target_env }})
+    needs: terraform-apply
+    if: (inputs.action || 'apply') == 'apply'
+    runs-on: ubuntu-latest
+    env:
+      TARGET_ENV: ${{ needs.terraform-apply.outputs.target_env }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_CI_ROLE_ARN || secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'eu-north-1' }}
+          role-session-name: GitHubActions-Platform-Deploy
+
+      - name: Setup Kubectl & Helm
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.31.0"
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "v3.15.0"
+
+      - name: Connect to EKS Cluster
+        run: |
+          aws eks update-kubeconfig --region ${{ vars.AWS_REGION || secrets.AWS_REGION || 'eu-north-1' }} --name ${{ needs.terraform-apply.outputs.cluster_name }}
+          kubectl get nodes
+
+      - name: Install AWS Load Balancer Controller
+        run: |
+          helm repo add eks https://aws.github.io/eks-charts
+          helm repo update
+          helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
+            -n kube-system \
+            --set clusterName=${{ needs.terraform-apply.outputs.cluster_name }} \
+            --set serviceAccount.create=true \
+            --set serviceAccount.name=aws-load-balancer-controller \
+            --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="${{ needs.terraform-apply.outputs.alb_role_arn }}" \
+            --set vpcId="${{ needs.terraform-apply.outputs.vpc_id }}"
+
+      - name: Deploy Headlamp Cluster Dashboard
+        run: |
+          kubectl apply -f k8s/headlamp/headlamp.yaml
+
+      - name: Deploy Argo CD GitOps Engine
+        run: |
+          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+          kubectl apply -f k8s/argocd-ingress/argocd-ingress.yaml
+
+      - name: Deploy Prometheus & Grafana Observability
+        run: |
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+          helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+            --namespace monitoring --create-namespace \
+            --set grafana.adminPassword="prom-operator"
+          kubectl apply -f k8s/grafana-ingress/grafana-ingress.yaml
+
+      - name: Deploy OmniPulse Microservices Fleet
+        run: |
+          echo "Deploying microservices fleet overlay: k8s/overlays/aws-${TARGET_ENV}"
+          kubectl apply -k k8s/overlays/aws-${TARGET_ENV}
+
+      - name: Deploy Robusta OSS AIOps Engine
+        run: |
+          helm repo add robusta https://robusta-charts.storage.googleapis.com
+          helm repo update
+          helm upgrade --install robusta robusta/robusta \
+            --namespace robusta --create-namespace \
+            -f k8s/robusta/values.yaml \
+            --set clusterName=${{ needs.terraform-apply.outputs.cluster_name }} \
+            --set globalConfig.cluster_name=${{ needs.terraform-apply.outputs.cluster_name }} \
+            --set runner.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="${{ needs.terraform-apply.outputs.robusta_role_arn }}" \
+            --set globalConfig.slack_api_key="${{ secrets.SLACK_BOT_TOKEN }}"

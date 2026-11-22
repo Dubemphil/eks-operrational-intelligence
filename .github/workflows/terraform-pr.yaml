@@ -1,0 +1,68 @@
+name: Terraform Plan (Dry-Run Preview)
+
+on:
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraform-pr.yaml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to Dry-Run'
+        required: true
+        type: choice
+        default: 'dev'
+        options:
+          - dev
+          - prod
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  terraform-plan:
+    name: 🔍 Terraform Plan (${{ github.event.inputs.environment || matrix.environment || 'dev' }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', github.event.inputs.environment)) || fromJSON('["dev", "prod"]') }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_CI_ROLE_ARN || secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'eu-north-1' }}
+          role-session-name: GitHubActions-Terraform-Plan-${{ matrix.environment }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.8.0"
+
+      - name: Terraform Format Check
+        run: |
+          terraform fmt -check -recursive terraform/aws
+
+      - name: Terraform Init & Dry-Run Plan
+        working-directory: terraform/aws/environments/${{ matrix.environment }}
+        run: |
+          echo "Executing read-only dry-run for environment: ${{ matrix.environment }}"
+          INIT_ARGS=(
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}"
+            -backend-config="key=environments/${{ matrix.environment }}/terraform.tfstate"
+            -backend-config="region=${{ vars.AWS_REGION || secrets.AWS_REGION || 'eu-north-1' }}"
+          )
+          if [ -n "${{ secrets.TF_LOCK_TABLE }}" ]; then
+            INIT_ARGS+=(-backend-config="dynamodb_table=${{ secrets.TF_LOCK_TABLE }}")
+          fi
+          terraform init "${INIT_ARGS[@]}"
+          
+          # Read-only dry-run: checks cloud permissions, API quotas, and planned changes
+          terraform plan -no-color
