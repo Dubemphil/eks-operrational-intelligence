@@ -156,7 +156,7 @@ jobs:
         run: |
           echo "==> Deploying Argo CD..."
           kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-          kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+          kubectl apply -n argocd --server-side --force-conflicts -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
           for i in {1..6}; do
             if kubectl apply -f k8s/argocd-ingress/argocd-ingress.yaml; then
               echo "✅ Argo CD Ingress deployed successfully!"
