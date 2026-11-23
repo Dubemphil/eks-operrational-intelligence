@@ -82,7 +82,11 @@ jobs:
         run: |
           CLUSTER="${{ inputs.cluster_name }}"
           if [ -z "$CLUSTER" ]; then
-            CLUSTER="omnipulse-eks"
+            echo "Auto-discovering EKS cluster for environment: $TARGET_ENV..."
+            CLUSTER=$(aws eks list-clusters --region "$AWS_REGION" --query "clusters[?contains(@, '${TARGET_ENV}')] | [0]" --output text)
+            if [ "$CLUSTER" = "None" ] || [ -z "$CLUSTER" ]; then
+              CLUSTER="omnipulse-eks-${TARGET_ENV}"
+            fi
           fi
           echo "Connecting to EKS Cluster: $CLUSTER in $AWS_REGION..."
           aws eks update-kubeconfig --region "$AWS_REGION" --name "$CLUSTER"

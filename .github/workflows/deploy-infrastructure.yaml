@@ -69,12 +69,6 @@ jobs:
     name: ${{ (inputs.action == 'destroy' && '💥 Terraform Destroy') || '🏗️ Terraform Apply' }} (${{ inputs.environment || 'dev' }})
     needs: validate
     runs-on: ubuntu-latest
-    outputs:
-      target_env: ${{ inputs.environment || 'dev' }}
-      cluster_name: ${{ steps.tf-outputs.outputs.cluster_name }}
-      alb_role_arn: ${{ steps.tf-outputs.outputs.alb_role_arn }}
-      vpc_id: ${{ steps.tf-outputs.outputs.vpc_id }}
-      robusta_role_arn: ${{ steps.tf-outputs.outputs.robusta_role_arn }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -118,26 +112,3 @@ jobs:
             echo "🚀 APPLYING INFRASTRUCTURE FOR: $TARGET_ENV"
             terraform apply -auto-approve
           fi
-
-      - name: Export Terraform Outputs
-        id: tf-outputs
-        if: (inputs.action || 'apply') == 'apply'
-        working-directory: terraform/aws/environments/${{ inputs.environment || 'dev' }}
-        run: |
-          echo "cluster_name=$(terraform output -raw eks_cluster_name)" >> $GITHUB_OUTPUT
-          echo "alb_role_arn=$(terraform output -raw aws_load_balancer_controller_role_arn)" >> $GITHUB_OUTPUT
-          echo "vpc_id=$(terraform output -raw vpc_id)" >> $GITHUB_OUTPUT
-          echo "robusta_role_arn=$(terraform output -raw robusta_runner_role_arn)" >> $GITHUB_OUTPUT
-
-  trigger-platform:
-    name: 🚀 Trigger Platform & Dashboards
-    needs: terraform-apply
-    if: (inputs.action || 'apply') == 'apply'
-    uses: ./.github/workflows/deploy-platform.yaml
-    with:
-      environment: ${{ needs.terraform-apply.outputs.target_env }}
-      cluster_name: ${{ needs.terraform-apply.outputs.cluster_name }}
-      alb_role_arn: ${{ needs.terraform-apply.outputs.alb_role_arn }}
-      vpc_id: ${{ needs.terraform-apply.outputs.vpc_id }}
-      robusta_role_arn: ${{ needs.terraform-apply.outputs.robusta_role_arn }}
-    secrets: inherit
