@@ -11,6 +11,7 @@ metadata:
     alb.ingress.kubernetes.io/healthcheck-path: "/api/health"
     alb.ingress.kubernetes.io/healthcheck-port: "3000"
 spec:
+  ingressClassName: alb
   rules:
   - http:
       paths:

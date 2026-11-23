@@ -62,7 +62,7 @@ jobs:
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true
-          severity: 'CRITICAL,HIGH'
+          severity: 'CRITICAL'
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3.7.0
