@@ -200,3 +200,56 @@ jobs:
             --set globalConfig.cluster_name="${{ steps.cluster-info.outputs.cluster_name }}" \
             --set runner.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="${{ steps.cluster-info.outputs.robusta_role_arn }}" \
             --set globalConfig.slack_api_key="${{ secrets.SLACK_BOT_TOKEN }}"
+
+      - name: Generate Enterprise Platform Access Summary
+        if: always()
+        run: |
+          echo "### 🚀 OmniPulse Platform Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "Environment: **${TARGET_ENV}** | Region: **${AWS_REGION}** | Cluster: **${{ steps.cluster-info.outputs.cluster_name }}**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          # 1. Fetch ArgoCD Credentials & Ingress
+          ARGOCD_PW=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" 2>/dev/null | base64 -d || echo "N/A (already rotated)")
+          ARGOCD_HOST=$(kubectl -n argocd get ingress argocd-server-aws-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
+          [ -z "$ARGOCD_HOST" ] && ARGOCD_HOST="Provisioning ALB..."
+
+          # 2. Fetch Grafana Ingress
+          GRAFANA_HOST=$(kubectl -n monitoring get ingress grafana-aws-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
+          [ -z "$GRAFANA_HOST" ] && GRAFANA_HOST="Provisioning ALB..."
+
+          # 3. Fetch Headlamp Ingress & Token
+          HEADLAMP_HOST=$(kubectl -n headlamp get ingress headlamp-aws-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
+          [ -z "$HEADLAMP_HOST" ] && HEADLAMP_HOST="Provisioning ALB..."
+          HEADLAMP_TOKEN=$(kubectl -n headlamp create token headlamp-admin --duration=24h 2>/dev/null || echo "N/A")
+
+          # 4. Fetch Microservices Frontend Ingress
+          FRONTEND_HOST=$(kubectl -n omnipulse-aws-${TARGET_ENV} get ingress -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
+          [ -z "$FRONTEND_HOST" ] && FRONTEND_HOST="Provisioning ALB..."
+
+          cat <<EOF >> $GITHUB_STEP_SUMMARY
+          | Service | Access URL | Username | Initial Password / Auth Token |
+          |:---|:---|:---|:---|
+          | **ArgoCD GitOps** | \`http://${ARGOCD_HOST}\` | \`admin\` | \`${ARGOCD_PW}\` |
+          | **Grafana Dashboards** | \`http://${GRAFANA_HOST}\` | \`admin\` | \`prom-operator\` |
+          | **Headlamp Kubernetes UI** | \`http://${HEADLAMP_HOST}\` | ServiceAccount | *See token below* |
+          | **OmniPulse Microservices** | \`http://${FRONTEND_HOST}\` | *(Public)* | Open Access |
+
+          <details>
+          <summary>🔑 <b>Click to Reveal Headlamp 24h Bearer Token & CLI Retrieval Commands</b></summary>
+
+          #### Headlamp Bearer Token:
+          \`\`\`text
+          ${HEADLAMP_TOKEN}
+          \`\`\`
+
+          #### Quick Terminal Commands:
+          \`\`\`bash
+          # Retrieve ArgoCD initial password from terminal:
+          kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+
+          # Generate fresh Headlamp auth token:
+          kubectl -n headlamp create token headlamp-admin --duration=24h
+          \`\`\`
+
+          </details>
+          EOF
