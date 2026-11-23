@@ -239,6 +239,41 @@ jobs:
           
           helm upgrade --install robusta robusta/robusta "${ROBUSTA_ARGS[@]}"
 
+      - name: Await AWS Application Load Balancer Hostnames
+        run: |
+          echo "==> Waiting up to 120s for AWS Load Balancer Controller to provision ALB hostnames..."
+          for i in {1..24}; do
+            ARGOCD_HOST=$(kubectl -n argocd get ingress argocd-server-aws-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+            GRAFANA_HOST=$(kubectl -n monitoring get ingress grafana-aws-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+            HEADLAMP_HOST=$(kubectl -n headlamp get ingress headlamp-aws-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+            FRONTEND_HOST=$(kubectl -n omnipulse-aws-${TARGET_ENV} get ingress -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+
+            if [ -n "$ARGOCD_HOST" ] && [ -n "$HEADLAMP_HOST" ] && [ -n "$GRAFANA_HOST" ]; then
+              echo "✅ All AWS ALBs have been provisioned!"
+              echo "ArgoCD:   $ARGOCD_HOST"
+              echo "Grafana:  $GRAFANA_HOST"
+              echo "Headlamp: $HEADLAMP_HOST"
+              echo "Frontend: $FRONTEND_HOST"
+              break
+            fi
+            echo "⏳ AWS ALB Controller is creating load balancers (attempt $i/24, waiting 5s)..."
+            sleep 5
+          done
+
+      - name: Export Headlamp Access Token
+        run: |
+          TOKEN=$(kubectl -n headlamp create token headlamp-admin --duration=24h 2>/dev/null || echo "")
+          echo "$TOKEN" > headlamp-token.txt
+          TOKEN_B64=$(echo -n "$TOKEN" | base64 -w 0 2>/dev/null || echo -n "$TOKEN" | base64)
+          echo "token_b64=$TOKEN_B64" >> $GITHUB_ENV
+
+      - name: Upload Headlamp Token Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: headlamp-admin-token
+          path: headlamp-token.txt
+          retention-days: 1
+
       - name: Generate Enterprise Platform Access Summary
         if: always()
         run: |
@@ -255,10 +290,9 @@ jobs:
           GRAFANA_HOST=$(kubectl -n monitoring get ingress grafana-aws-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
           [ -z "$GRAFANA_HOST" ] && GRAFANA_HOST="Provisioning ALB..."
 
-          # 3. Fetch Headlamp Ingress & Token
+          # 3. Fetch Headlamp Ingress
           HEADLAMP_HOST=$(kubectl -n headlamp get ingress headlamp-aws-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
           [ -z "$HEADLAMP_HOST" ] && HEADLAMP_HOST="Provisioning ALB..."
-          HEADLAMP_TOKEN=$(kubectl -n headlamp create token headlamp-admin --duration=24h 2>/dev/null || echo "N/A")
 
           # 4. Fetch Microservices Frontend Ingress
           FRONTEND_HOST=$(kubectl -n omnipulse-aws-${TARGET_ENV} get ingress -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
@@ -276,19 +310,28 @@ jobs:
           |:---|:---|:---|:---|
           | **ArgoCD GitOps** | \`http://${ARGOCD_HOST}\` | \`admin\` | \`${ARGOCD_PW}\` |
           | **Grafana Dashboards** | \`http://${GRAFANA_HOST}\` | \`admin\` | \`prom-operator\` |
-          | **Headlamp Kubernetes UI** | \`http://${HEADLAMP_HOST}\` | ServiceAccount | *See token below* |
+          | **Headlamp Kubernetes UI** | \`http://${HEADLAMP_HOST}\` | ServiceAccount | *Download artifact or see below* |
           | **OmniPulse Microservices** | \`http://${FRONTEND_HOST}\` | *(Public)* | Open Access |
           | **Slack Incident ChatOps** | #${{ vars.SLACK_CHANNEL || 'operational-intelligence' }} | Bot User | ${SLACK_STATUS} |
 
           <details>
-          <summary>🔑 <b>Click to Reveal Headlamp 24h Bearer Token & CLI Retrieval Commands</b></summary>
+          <summary>🔑 <b>Click to Reveal Headlamp Token Retrieval & Terminal Commands</b></summary>
 
           #### Headlamp Bearer Token:
+          * **Option A (Instant Download)**: Download the unmasked \`headlamp-admin-token\` file from the **Artifacts** section at the top of this run.
+          * **Option B (Base64 Encoded - paste into terminal to decode)**:
           \`\`\`text
-          ${HEADLAMP_TOKEN}
+          ${token_b64}
+          \`\`\`
+          \`\`\`bash
+          # Decode on macOS / Linux:
+          echo "${token_b64}" | base64 -d
+
+          # Decode in Windows PowerShell:
+          [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String("${token_b64}"))
           \`\`\`
 
-          #### Quick Terminal Commands:
+          #### Quick Terminal Retrieval:
           \`\`\`bash
           # Retrieve ArgoCD initial password from terminal:
           kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
