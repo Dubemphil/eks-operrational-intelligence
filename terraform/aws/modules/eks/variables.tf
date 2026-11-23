@@ -21,6 +21,12 @@ variable "vpc_id" {
   description = "VPC ID where cluster is provisioned"
 }
 
+variable "vpc_cidr" {
+  type        = string
+  description = "VPC CIDR block"
+  default     = "10.0.0.0/16"
+}
+
 variable "public_subnet_ids" {
   type        = list(string)
   description = "List of public subnet IDs"

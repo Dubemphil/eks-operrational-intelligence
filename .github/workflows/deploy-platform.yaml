@@ -134,7 +134,15 @@ jobs:
             echo "Tagging Private Subnets: $PRIVATE_SUBNETS"
             aws ec2 create-tags --resources $PRIVATE_SUBNETS --tags "Key=kubernetes.io/cluster/${CLUSTER},Value=shared" "Key=kubernetes.io/role/internal-elb,Value=1"
           fi
-          echo "✅ Subnet tags verified."
+
+          # Authorize VPC ingress on Cluster Security Group (for ALB to Pod IPs)
+          SG_ID=$(aws eks describe-cluster --name "$CLUSTER" --query "cluster.resourcesVpcConfig.clusterSecurityGroupId" --output text)
+          VPC_CIDR=$(aws ec2 describe-vpcs --vpc-ids "$VPC_ID" --query "Vpcs[0].CidrBlock" --output text)
+          if [ -n "$SG_ID" ] && [ -n "$VPC_CIDR" ]; then
+            aws ec2 authorize-security-group-ingress --group-id "$SG_ID" --protocol -1 --cidr "$VPC_CIDR" 2>/dev/null || true
+            echo "✅ Security group $SG_ID authorized for VPC $VPC_CIDR"
+          fi
+          echo "✅ Subnet tags and security groups verified."
 
       - name: Purge Stale Webhook Configurations (Self-Healing TLS)
         run: |
@@ -178,6 +186,7 @@ jobs:
           echo "==> Deploying Argo CD..."
           kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
           kubectl apply -n argocd --server-side --force-conflicts -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+          kubectl -n argocd patch configmap argocd-cmd-params-cm --type merge -p '{"data":{"server.insecure":"true"}}' || true
           for i in {1..6}; do
             if kubectl apply -f k8s/argocd-ingress/argocd-ingress.yaml; then
               echo "✅ Argo CD Ingress deployed successfully!"

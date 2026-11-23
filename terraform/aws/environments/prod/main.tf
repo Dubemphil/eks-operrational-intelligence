@@ -70,6 +70,7 @@ module "eks" {
   cluster_name       = var.cluster_name
   kubernetes_version = var.kubernetes_version
   vpc_id             = module.vpc.vpc_id
+  vpc_cidr           = var.vpc_cidr
   public_subnet_ids  = module.vpc.public_subnet_ids
   private_subnet_ids = module.vpc.private_subnet_ids
   instance_types     = var.instance_types
