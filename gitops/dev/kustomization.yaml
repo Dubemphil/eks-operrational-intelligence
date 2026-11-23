@@ -2,18 +2,18 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - ../../k8s/overlays/aws-dev
+- ../../k8s/overlays/aws-dev
 
 patches:
-  - target:
-      kind: Deployment
-      name: frontend
-    patch: |-
-      - op: replace
-        path: /spec/template/spec/containers/0/image
-        value: app
+- patch: |-
+    - op: replace
+      path: /spec/template/spec/containers/0/image
+      value: app
+  target:
+    kind: Deployment
+    name: frontend
 
 images:
-  - name: app
-    newName: gcr.io/google-samples/microservices-demo/frontend
-    newTag: v0.10.1
+- digest: sha256:f57d9bd792fcba57a2d82e4d1863a40540ce199d965e1e5f3c923e66816113e3
+  name: app
+  newName: 323198192259.dkr.ecr.eu-north-1.amazonaws.com/omnipulse/frontend
