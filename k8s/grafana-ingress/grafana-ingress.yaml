@@ -12,11 +12,16 @@ metadata:
     alb.ingress.kubernetes.io/success-codes: "200-399"
 spec:
   ingressClassName: alb
+  defaultBackend:
+    service:
+      name: kube-prometheus-stack-grafana
+      port:
+        number: 80
   rules:
   - http:
       paths:
-      - path: /
-        pathType: Prefix
+      - path: /*
+        pathType: ImplementationSpecific
         backend:
           service:
             name: kube-prometheus-stack-grafana

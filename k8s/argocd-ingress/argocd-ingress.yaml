@@ -13,11 +13,16 @@ metadata:
     alb.ingress.kubernetes.io/success-codes: "200-399"
 spec:
   ingressClassName: alb
+  defaultBackend:
+    service:
+      name: argocd-server
+      port:
+        number: 80
   rules:
   - http:
       paths:
-      - path: /
-        pathType: Prefix
+      - path: /*
+        pathType: ImplementationSpecific
         backend:
           service:
             name: argocd-server

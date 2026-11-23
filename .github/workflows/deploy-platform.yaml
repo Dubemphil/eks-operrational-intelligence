@@ -310,6 +310,16 @@ jobs:
           path: headlamp-token.txt
           retention-days: 1
 
+      - name: Verify Live Endpoints
+        run: |
+          echo "==> Verifying live ALB health..."
+          for host in "$HEADLAMP_HOST" "$ARGOCD_HOST" "$FRONTEND_HOST"; do
+            if [ -n "$host" ]; then
+              STATUS=$(curl -s -o /dev/null -w "%{http_code}" -m 10 "http://$host" || echo "timeout")
+              echo "Probe: http://$host -> HTTP $STATUS"
+            fi
+          done
+
       - name: Generate Enterprise Platform Access Summary
         if: always()
         run: |
