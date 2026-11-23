@@ -59,7 +59,7 @@ provider "helm" {
 module "vpc" {
   source       = "../../modules/vpc"
   environment  = var.environment
-  cluster_name = var.cluster_name
+  cluster_name = "${var.cluster_name}-${var.environment}"
   vpc_cidr     = var.vpc_cidr
 }
 

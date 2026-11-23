@@ -115,6 +115,27 @@ jobs:
           echo "robusta_role_arn=$ROBUSTA_ROLE" >> $GITHUB_OUTPUT
           echo "✅ Discovered Context: Cluster=$CLUSTER, VPC=$VPC_ID, ALB_Role=$ALB_ROLE"
 
+      - name: Ensure Subnet Tags for AWS Load Balancer Controller
+        run: |
+          echo "==> Tagging VPC subnets with kubernetes.io/cluster/${{ steps.cluster-info.outputs.cluster_name }}=shared for ALB auto-discovery..."
+          VPC_ID="${{ steps.cluster-info.outputs.vpc_id }}"
+          CLUSTER="${{ steps.cluster-info.outputs.cluster_name }}"
+          
+          # Tag Public Subnets (required for internet-facing ALBs)
+          PUBLIC_SUBNETS=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=${VPC_ID}" --query "Subnets[?MapPublicIpOnLaunch==\`true\`].SubnetId" --output text)
+          if [ -n "$PUBLIC_SUBNETS" ]; then
+            echo "Tagging Public Subnets: $PUBLIC_SUBNETS"
+            aws ec2 create-tags --resources $PUBLIC_SUBNETS --tags "Key=kubernetes.io/cluster/${CLUSTER},Value=shared" "Key=kubernetes.io/role/elb,Value=1"
+          fi
+          
+          # Tag Private Subnets (for internal services / worker nodes)
+          PRIVATE_SUBNETS=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=${VPC_ID}" --query "Subnets[?MapPublicIpOnLaunch==\`false\`].SubnetId" --output text)
+          if [ -n "$PRIVATE_SUBNETS" ]; then
+            echo "Tagging Private Subnets: $PRIVATE_SUBNETS"
+            aws ec2 create-tags --resources $PRIVATE_SUBNETS --tags "Key=kubernetes.io/cluster/${CLUSTER},Value=shared" "Key=kubernetes.io/role/internal-elb,Value=1"
+          fi
+          echo "✅ Subnet tags verified."
+
       - name: Purge Stale Webhook Configurations (Self-Healing TLS)
         run: |
           echo "==> Cleaning any stale webhook configurations to ensure clean CA certificate regeneration..."
@@ -241,8 +262,8 @@ jobs:
 
       - name: Await AWS Application Load Balancer Hostnames
         run: |
-          echo "==> Waiting up to 120s for AWS Load Balancer Controller to provision ALB hostnames..."
-          for i in {1..24}; do
+          echo "==> Waiting up to 180s for AWS Load Balancer Controller to provision ALB hostnames..."
+          for i in {1..36}; do
             ARGOCD_HOST=$(kubectl -n argocd get ingress argocd-server-aws-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
             GRAFANA_HOST=$(kubectl -n monitoring get ingress grafana-aws-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
             HEADLAMP_HOST=$(kubectl -n headlamp get ingress headlamp-aws-ingress -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
@@ -256,9 +277,15 @@ jobs:
               echo "Frontend: $FRONTEND_HOST"
               break
             fi
-            echo "⏳ AWS ALB Controller is creating load balancers (attempt $i/24, waiting 5s)..."
+            echo "⏳ AWS ALB Controller is creating load balancers (attempt $i/36, waiting 5s)..."
             sleep 5
           done
+
+          if [ -z "$ARGOCD_HOST" ] && [ -z "$HEADLAMP_HOST" ]; then
+            echo "⚠️ Ingress hostnames not populated yet. Dumping Ingress events and ALB controller logs:"
+            kubectl describe ingress -A || true
+            kubectl -n kube-system logs -l app.kubernetes.io/name=aws-load-balancer-controller --tail=50 || true
+          fi
 
       - name: Export Headlamp Access Token
         run: |
