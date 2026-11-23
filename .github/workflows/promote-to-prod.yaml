@@ -1,12 +1,19 @@
 name: Promote Dev to Production
+run-name: 🚀 Promote Dev to Production by @${{ github.actor }}
 
 on:
   workflow_dispatch:
     inputs:
       target_image:
-        description: 'Image digest/tag to promote (leave empty to promote current dev version)'
+        description: 'Specific image digest/tag to promote (leave blank to auto-promote current dev version)'
         required: false
         default: ''
+        type: string
+      confirm:
+        description: 'Confirm promotion to Production environment'
+        required: true
+        type: boolean
+        default: true
 
 permissions:
   contents: write # Required to commit and push changes to gitops/prod
@@ -22,7 +29,26 @@ jobs:
       - name: Setup Kustomize
         uses: imranismail/setup-kustomize@v3
 
-      - name: Resolve Image Reference
+      - name: Resolve Previous Production Image
+        id: prev-prod
+        run: |
+          PREV_IMAGE=$(python3 -c "
+import re
+with open('gitops/prod/kustomization.yaml') as f:
+    content = f.read()
+match_name = re.search(r'newName:\s*([^\s]+)', content)
+match_digest = re.search(r'digest:\s*([^\s]+)', content)
+match_tag = re.search(r'newTag:\s*([^\s]+)', content)
+new_name = match_name.group(1) if match_name else ''
+digest = match_digest.group(1) if match_digest else None
+tag = match_tag.group(1) if match_tag else None
+target = f'{new_name}@{digest}' if digest else (f'{new_name}:{tag}' if tag else new_name)
+print(target)
+")
+          echo "Current Production Image: $PREV_IMAGE"
+          echo "prev_image=$PREV_IMAGE" >> $GITHUB_OUTPUT
+
+      - name: Resolve Target Image Reference
         id: resolve
         run: |
           USER_INPUT="${{ github.event.inputs.target_image }}"
@@ -65,17 +91,48 @@ print(target)
           git diff gitops/prod/kustomization.yaml
 
       - name: Commit and Push to GitOps
+        id: git-push
         run: |
           TARGET="${{ steps.resolve.outputs.image }}"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
-          # Check if there are changes to commit
           if git diff --quiet gitops/prod/kustomization.yaml; then
             echo "ℹ️ No changes detected. Production is already up to date with Dev."
+            echo "status=unchanged" >> $GITHUB_OUTPUT
           else
             git commit -am "chore(gitops): promote dev image to prod ($TARGET) [skip ci]"
             git push
-            echo "✅ Successfully promoted $TARGET to production!"
+            COMMIT_SHA=$(git rev-parse --short HEAD)
+            echo "status=promoted" >> $GITHUB_OUTPUT
+            echo "commit_sha=$COMMIT_SHA" >> $GITHUB_OUTPUT
+            echo "✅ Successfully promoted $TARGET to production (commit $COMMIT_SHA)!"
           fi
 
+      - name: Generate Enterprise Promotion Summary
+        if: always()
+        run: |
+          TARGET="${{ steps.resolve.outputs.image }}"
+          PREV="${{ steps.prev-prod.outputs.prev_image }}"
+          STATUS="${{ steps.git-push.outputs.status || 'failed' }}"
+          COMMIT="${{ steps.git-push.outputs.commit_sha || 'N/A' }}"
+
+          cat <<EOF >> $GITHUB_STEP_SUMMARY
+          # 🚀 OmniPulse Production Promotion Summary
+
+          | Attribute | Details |
+          |:---|:---|
+          | **Triggered By** | @${{ github.actor }} |
+          | **Promotion Status** | **${STATUS^^}** |
+          | **Target Image** | \`${TARGET}\` |
+          | **Previous Production Image** | \`${PREV}\` |
+          | **GitOps Commit** | \`${COMMIT}\` |
+
+          ---
+
+          ### 🔄 Next Steps in Argo CD
+          1. Argo CD watches \`gitops/prod/kustomization.yaml\` and will automatically sync the new image digest to the **prod** environment.
+          2. Check the live deployment in the Argo CD UI:
+             - **App Name**: \`prod-application\`
+             - **Namespace**: \`omnipulse-aws-prod\`
+          EOF

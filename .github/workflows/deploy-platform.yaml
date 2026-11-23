@@ -166,6 +166,27 @@ jobs:
             sleep 10
           done
 
+      - name: Configure Argo CD Slack Notifications
+        run: |
+          SLACK_TOKEN="${{ secrets.SLACK_BOT_TOKEN }}"
+          SLACK_CH="${{ vars.SLACK_CHANNEL || 'operational-intelligence' }}"
+          if [ -n "$SLACK_TOKEN" ]; then
+            echo "==> Configuring Slack Bot token for Argo CD Notifications..."
+            kubectl -n argocd create secret generic argocd-notifications-secret \
+              --from-literal=slack-token="$SLACK_TOKEN" \
+              --dry-run=client -o yaml | kubectl apply -f -
+            
+            kubectl -n argocd patch configmap argocd-notifications-cm --type merge -p "{
+              \"data\": {
+                \"service.slack\": \"token: \$slack-token\n\",
+                \"subscriptions\": \"[{\\\"recipients\\\": [\\\"slack:${SLACK_CH}\\\"], \\\"triggers\\\": [\\\"on-sync-failed\\\", \\\"on-health-degraded\\\", \\\"on-sync-succeeded\\\"]}]\"
+              }
+            }" || true
+            echo "✅ Argo CD Slack Notifications configured for #${SLACK_CH}"
+          else
+            echo "ℹ️ SLACK_BOT_TOKEN secret is not set. Skipping Argo CD Slack notification configuration."
+          fi
+
       - name: Deploy Prometheus & Grafana Observability
         run: |
           echo "==> Deploying Prometheus & Grafana stack..."
@@ -193,13 +214,30 @@ jobs:
           echo "==> Deploying Robusta AIOps Engine..."
           helm repo add robusta https://robusta-charts.storage.googleapis.com
           helm repo update
-          helm upgrade --install robusta robusta/robusta \
-            --namespace robusta --create-namespace \
-            -f k8s/robusta/values.yaml \
-            --set clusterName="${{ steps.cluster-info.outputs.cluster_name }}" \
-            --set globalConfig.cluster_name="${{ steps.cluster-info.outputs.cluster_name }}" \
-            --set runner.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="${{ steps.cluster-info.outputs.robusta_role_arn }}" \
-            --set globalConfig.slack_api_key="${{ secrets.SLACK_BOT_TOKEN }}"
+          
+          ROBUSTA_ARGS=(
+            --namespace robusta --create-namespace
+            -f k8s/robusta/values.yaml
+            --set clusterName="${{ steps.cluster-info.outputs.cluster_name }}"
+            --set globalConfig.cluster_name="${{ steps.cluster-info.outputs.cluster_name }}"
+            --set runner.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="${{ steps.cluster-info.outputs.robusta_role_arn }}"
+          )
+          
+          SLACK_TOKEN="${{ secrets.SLACK_BOT_TOKEN }}"
+          SLACK_CH="${{ vars.SLACK_CHANNEL || 'operational-intelligence' }}"
+          if [ -n "$SLACK_TOKEN" ]; then
+            echo "✅ Injecting Slack Bot Token for Robusta ChatOps triage on #${SLACK_CH}..."
+            ROBUSTA_ARGS+=(
+              --set globalConfig.slack_api_key="$SLACK_TOKEN"
+              --set globalConfig.slack_channel="$SLACK_CH"
+              --set "sinksConfig[0].slack_sink.api_key=$SLACK_TOKEN"
+              --set "sinksConfig[0].slack_sink.slack_channel=$SLACK_CH"
+            )
+          else
+            echo "ℹ️ SLACK_BOT_TOKEN secret not set. Robusta will operate in local/in-cluster alert mode."
+          fi
+          
+          helm upgrade --install robusta robusta/robusta "${ROBUSTA_ARGS[@]}"
 
       - name: Generate Enterprise Platform Access Summary
         if: always()
@@ -226,6 +264,13 @@ jobs:
           FRONTEND_HOST=$(kubectl -n omnipulse-aws-${TARGET_ENV} get ingress -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}' 2>/dev/null)
           [ -z "$FRONTEND_HOST" ] && FRONTEND_HOST="Provisioning ALB..."
 
+          # 5. Check Slack Alerting status
+          if [ -n "${{ secrets.SLACK_BOT_TOKEN }}" ]; then
+            SLACK_STATUS="✅ Active on #${{ vars.SLACK_CHANNEL || 'operational-intelligence' }}"
+          else
+            SLACK_STATUS="⚠️ Inactive (Set SLACK_BOT_TOKEN secret)"
+          fi
+
           cat <<EOF >> $GITHUB_STEP_SUMMARY
           | Service | Access URL | Username | Initial Password / Auth Token |
           |:---|:---|:---|:---|
@@ -233,6 +278,7 @@ jobs:
           | **Grafana Dashboards** | \`http://${GRAFANA_HOST}\` | \`admin\` | \`prom-operator\` |
           | **Headlamp Kubernetes UI** | \`http://${HEADLAMP_HOST}\` | ServiceAccount | *See token below* |
           | **OmniPulse Microservices** | \`http://${FRONTEND_HOST}\` | *(Public)* | Open Access |
+          | **Slack Incident ChatOps** | #${{ vars.SLACK_CHANNEL || 'operational-intelligence' }} | Bot User | ${SLACK_STATUS} |
 
           <details>
           <summary>🔑 <b>Click to Reveal Headlamp 24h Bearer Token & CLI Retrieval Commands</b></summary>
