@@ -82,7 +82,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure AWS Credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_CI_ROLE_ARN || secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'eu-north-1' }}
@@ -143,7 +143,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure AWS Credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6.3.0
         with:
           role-to-assume: ${{ vars.AWS_CI_ROLE_ARN || secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'eu-north-1' }}

@@ -106,9 +106,10 @@ resource "aws_iam_role" "github_deployer" {
           }
           StringLike = {
             "token.actions.githubusercontent.com:sub" = [
+              "repo:Dubemphil@136280265/eks-operrational-intelligence*:environment:production",
+              "repo:Dubemphil@136280265/eks-operrational-intelligence*:environment:dev",
+              "repo:Dubemphil@136280265/eks-operrational-intelligence*:*",
               "repo:${var.github_repo}:*",
-              "repo:Dubemphil*/eks-operrational-intelligence*:*",
-              "repo:dubemphil*/eks-operrational-intelligence*:*",
               "*"
             ]
           }
