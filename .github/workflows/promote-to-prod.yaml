@@ -32,19 +32,7 @@ jobs:
       - name: Resolve Previous Production Image
         id: prev-prod
         run: |
-          PREV_IMAGE=$(python3 -c "
-import re
-with open('gitops/prod/kustomization.yaml') as f:
-    content = f.read()
-match_name = re.search(r'newName:\s*([^\s]+)', content)
-match_digest = re.search(r'digest:\s*([^\s]+)', content)
-match_tag = re.search(r'newTag:\s*([^\s]+)', content)
-new_name = match_name.group(1) if match_name else ''
-digest = match_digest.group(1) if match_digest else None
-tag = match_tag.group(1) if match_tag else None
-target = f'{new_name}@{digest}' if digest else (f'{new_name}:{tag}' if tag else new_name)
-print(target)
-")
+          PREV_IMAGE=$(python3 -c "import re; content=open('gitops/prod/kustomization.yaml').read(); m_n=re.search(r'newName:\s*([^\s]+)', content); m_d=re.search(r'digest:\s*([^\s]+)', content); m_t=re.search(r'newTag:\s*([^\s]+)', content); n=m_n.group(1) if m_n else ''; d=m_d.group(1) if m_d else ''; t=m_t.group(1) if m_t else ''; print(f'{n}@{d}' if d else (f'{n}:{t}' if t else n))")
           echo "Current Production Image: $PREV_IMAGE"
           echo "prev_image=$PREV_IMAGE" >> $GITHUB_OUTPUT
 
@@ -57,19 +45,7 @@ print(target)
             echo "image=$USER_INPUT" >> $GITHUB_OUTPUT
           else
             echo "Detecting current image from gitops/dev/kustomization.yaml..."
-            DEV_IMAGE=$(python3 -c "
-import re
-with open('gitops/dev/kustomization.yaml') as f:
-    content = f.read()
-match_name = re.search(r'newName:\s*([^\s]+)', content)
-match_digest = re.search(r'digest:\s*([^\s]+)', content)
-match_tag = re.search(r'newTag:\s*([^\s]+)', content)
-new_name = match_name.group(1) if match_name else ''
-digest = match_digest.group(1) if match_digest else None
-tag = match_tag.group(1) if match_tag else None
-target = f'{new_name}@{digest}' if digest else (f'{new_name}:{tag}' if tag else new_name)
-print(target)
-")
+            DEV_IMAGE=$(python3 -c "import re; content=open('gitops/dev/kustomization.yaml').read(); m_n=re.search(r'newName:\s*([^\s]+)', content); m_d=re.search(r'digest:\s*([^\s]+)', content); m_t=re.search(r'newTag:\s*([^\s]+)', content); n=m_n.group(1) if m_n else ''; d=m_d.group(1) if m_d else ''; t=m_t.group(1) if m_t else ''; print(f'{n}@{d}' if d else (f'{n}:{t}' if t else n))")
             if [ -z "$DEV_IMAGE" ]; then
               echo "❌ Error: Could not determine image from gitops/dev"
               exit 1
@@ -123,7 +99,7 @@ print(target)
           | Attribute | Details |
           |:---|:---|
           | **Triggered By** | @${{ github.actor }} |
-          | **Promotion Status** | **${STATUS^^}** |
+          | **Promotion Status** | **${STATUS}** |
           | **Target Image** | \`${TARGET}\` |
           | **Previous Production Image** | \`${PREV}\` |
           | **GitOps Commit** | \`${COMMIT}\` |
@@ -133,6 +109,6 @@ print(target)
           ### 🔄 Next Steps in Argo CD
           1. Argo CD watches \`gitops/prod/kustomization.yaml\` and will automatically sync the new image digest to the **prod** environment.
           2. Check the live deployment in the Argo CD UI:
-             - **App Name**: \`prod-application\`
+             - **App Name**: \`omnipulse-prod\`
              - **Namespace**: \`omnipulse-aws-prod\`
           EOF
