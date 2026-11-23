@@ -1,0 +1,198 @@
+name: Deploy Platform & Dashboards
+run-name: 🚀 Deploy Platform [${{ inputs.environment || 'dev' }}] by @${{ github.actor }}
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'k8s/**'
+      - '.github/workflows/deploy-platform.yaml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target Environment'
+        required: true
+        type: choice
+        default: 'dev'
+        options:
+          - dev
+          - prod
+      clean_webhooks:
+        description: 'Force regenerate webhook TLS certificates'
+        required: true
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+        default: 'dev'
+      cluster_name:
+        required: false
+        type: string
+        default: ''
+      alb_role_arn:
+        required: false
+        type: string
+        default: ''
+      vpc_id:
+        required: false
+        type: string
+        default: ''
+      robusta_role_arn:
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-platform:
+    name: 🚀 Platform & Dashboards (${{ inputs.environment || 'dev' }})
+    runs-on: ubuntu-latest
+    env:
+      TARGET_ENV: ${{ inputs.environment || 'dev' }}
+      AWS_REGION: ${{ vars.AWS_REGION || secrets.AWS_REGION || 'eu-north-1' }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_CI_ROLE_ARN || secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: GitHubActions-Platform-Deploy
+
+      - name: Setup Kubectl & Helm
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.31.0"
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "v3.15.0"
+
+      - name: Discover EKS Cluster & Context
+        id: cluster-info
+        run: |
+          CLUSTER="${{ inputs.cluster_name }}"
+          if [ -z "$CLUSTER" ]; then
+            CLUSTER="omnipulse-eks"
+          fi
+          echo "Connecting to EKS Cluster: $CLUSTER in $AWS_REGION..."
+          aws eks update-kubeconfig --region "$AWS_REGION" --name "$CLUSTER"
+          kubectl get nodes
+          
+          # Discover Account ID & VPC ID dynamically
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          VPC_ID="${{ inputs.vpc_id }}"
+          if [ -z "$VPC_ID" ]; then
+            VPC_ID=$(aws eks describe-cluster --name "$CLUSTER" --query "cluster.resourcesVpcConfig.vpcId" --output text)
+          fi
+          
+          ALB_ROLE="${{ inputs.alb_role_arn }}"
+          if [ -z "$ALB_ROLE" ]; then
+            ALB_ROLE="arn:aws:iam::${ACCOUNT_ID}:role/omnipulse-aws-load-balancer-controller-${TARGET_ENV}"
+          fi
+          
+          ROBUSTA_ROLE="${{ inputs.robusta_role_arn }}"
+          if [ -z "$ROBUSTA_ROLE" ]; then
+            ROBUSTA_ROLE="arn:aws:iam::${ACCOUNT_ID}:role/omnipulse-robusta-runner-${TARGET_ENV}"
+          fi
+          
+          echo "cluster_name=$CLUSTER" >> $GITHUB_OUTPUT
+          echo "vpc_id=$VPC_ID" >> $GITHUB_OUTPUT
+          echo "alb_role_arn=$ALB_ROLE" >> $GITHUB_OUTPUT
+          echo "robusta_role_arn=$ROBUSTA_ROLE" >> $GITHUB_OUTPUT
+          echo "✅ Discovered Context: Cluster=$CLUSTER, VPC=$VPC_ID, ALB_Role=$ALB_ROLE"
+
+      - name: Purge Stale Webhook Configurations (Self-Healing TLS)
+        run: |
+          echo "==> Cleaning any stale webhook configurations to ensure clean CA certificate regeneration..."
+          kubectl delete validatingwebhookconfiguration aws-load-balancer-webhook --ignore-not-found
+          kubectl delete mutatingwebhookconfiguration aws-load-balancer-webhook --ignore-not-found
+          kubectl -n kube-system delete secret aws-load-balancer-tls --ignore-not-found
+
+      - name: Install AWS Load Balancer Controller
+        run: |
+          helm repo add eks https://aws.github.io/eks-charts
+          helm repo update
+          helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
+            -n kube-system \
+            --set clusterName="${{ steps.cluster-info.outputs.cluster_name }}" \
+            --set serviceAccount.create=true \
+            --set serviceAccount.name=aws-load-balancer-controller \
+            --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="${{ steps.cluster-info.outputs.alb_role_arn }}" \
+            --set vpcId="${{ steps.cluster-info.outputs.vpc_id }}"
+          
+          echo "==> Waiting for AWS Load Balancer Controller rollout..."
+          kubectl rollout status deployment/aws-load-balancer-controller -n kube-system --timeout=180s
+          
+          echo "==> Giving Kubernetes admission webhook controller 15s to propagate caBundle..."
+          sleep 15
+
+      - name: Deploy Headlamp Cluster Dashboard
+        run: |
+          echo "==> Deploying Headlamp Dashboard (with webhook retry barrier)..."
+          for i in {1..6}; do
+            if kubectl apply -f k8s/headlamp/headlamp.yaml; then
+              echo "✅ Headlamp deployed successfully!"
+              break
+            fi
+            echo "⚠️ Webhook not ready yet, retrying in 10s (attempt $i/6)..."
+            sleep 10
+          done
+
+      - name: Deploy Argo CD GitOps Engine
+        run: |
+          echo "==> Deploying Argo CD..."
+          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+          for i in {1..6}; do
+            if kubectl apply -f k8s/argocd-ingress/argocd-ingress.yaml; then
+              echo "✅ Argo CD Ingress deployed successfully!"
+              break
+            fi
+            echo "⚠️ Webhook not ready yet, retrying in 10s (attempt $i/6)..."
+            sleep 10
+          done
+
+      - name: Deploy Prometheus & Grafana Observability
+        run: |
+          echo "==> Deploying Prometheus & Grafana stack..."
+          helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+          helm repo update
+          helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
+            --namespace monitoring --create-namespace \
+            --set grafana.adminPassword="prom-operator"
+          for i in {1..6}; do
+            if kubectl apply -f k8s/grafana-ingress/grafana-ingress.yaml; then
+              echo "✅ Grafana Ingress deployed successfully!"
+              break
+            fi
+            echo "⚠️ Webhook not ready yet, retrying in 10s (attempt $i/6)..."
+            sleep 10
+          done
+
+      - name: Deploy OmniPulse Microservices Fleet
+        run: |
+          echo "==> Deploying microservices fleet overlay: k8s/overlays/aws-${TARGET_ENV}"
+          kubectl apply -k k8s/overlays/aws-${TARGET_ENV}
+
+      - name: Deploy Robusta OSS AIOps Engine
+        run: |
+          echo "==> Deploying Robusta AIOps Engine..."
+          helm repo add robusta https://robusta-charts.storage.googleapis.com
+          helm repo update
+          helm upgrade --install robusta robusta/robusta \
+            --namespace robusta --create-namespace \
+            -f k8s/robusta/values.yaml \
+            --set clusterName="${{ steps.cluster-info.outputs.cluster_name }}" \
+            --set globalConfig.cluster_name="${{ steps.cluster-info.outputs.cluster_name }}" \
+            --set runner.serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="${{ steps.cluster-info.outputs.robusta_role_arn }}" \
+            --set globalConfig.slack_api_key="${{ secrets.SLACK_BOT_TOKEN }}"
