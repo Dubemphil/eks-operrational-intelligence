@@ -169,6 +169,25 @@ jobs:
           echo "==> Giving Kubernetes admission webhook controller 15s to propagate caBundle..."
           sleep 15
 
+      - name: Install ExternalDNS for Automated Route 53 DNS
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          EXT_DNS_ROLE="arn:aws:iam::${ACCOUNT_ID}:role/omnipulse-external-dns-${TARGET_ENV}"
+          helm repo add external-dns https://kubernetes-sigs.github.io/external-dns/
+          helm repo update
+          helm upgrade --install external-dns external-dns/external-dns \
+            -n kube-system \
+            --set provider.name=aws \
+            --set env[0].name=AWS_DEFAULT_REGION \
+            --set env[0].value="${AWS_REGION}" \
+            --set domainFilters[0]="devopsstandard.name.ng" \
+            --set policy=sync \
+            --set txtOwnerId="omnipulse-${TARGET_ENV}" \
+            --set serviceAccount.create=true \
+            --set serviceAccount.name=external-dns \
+            --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="${EXT_DNS_ROLE}"
+          kubectl rollout status deployment/external-dns -n kube-system --timeout=120s
+
       - name: Deploy Headlamp Cluster Dashboard
         run: |
           echo "==> Deploying Headlamp Dashboard (with webhook retry barrier)..."
@@ -352,12 +371,12 @@ jobs:
           fi
 
           cat <<EOF >> $GITHUB_STEP_SUMMARY
-          | Service | Access URL | Username | Initial Password / Auth Token |
-          |:---|:---|:---|:---|
-          | **ArgoCD GitOps** | \`http://${ARGOCD_HOST}\` | \`admin\` | \`${ARGOCD_PW}\` |
-          | **Grafana Dashboards** | \`http://${GRAFANA_HOST}\` | \`admin\` | \`prom-operator\` |
-          | **Headlamp Kubernetes UI** | \`http://${HEADLAMP_HOST}\` | ServiceAccount | *Download artifact or see below* |
-          | **OmniPulse Microservices** | \`http://${FRONTEND_HOST}\` | *(Public)* | Open Access |
+          | Service | Custom Domain (HTTPS) | ALB Hostname | Username | Initial Password / Auth Token |
+          |:---|:---|:---|:---|:---|
+          | **ArgoCD GitOps** | https://argocd.devopsstandard.name.ng | \`${ARGOCD_HOST}\` | \`admin\` | \`${ARGOCD_PW}\` |
+          | **Grafana Dashboards** | https://grafana.devopsstandard.name.ng | \`${GRAFANA_HOST}\` | \`admin\` | \`prom-operator\` |
+          | **Headlamp Kubernetes UI** | https://headlamp.devopsstandard.name.ng | \`${HEADLAMP_HOST}\` | ServiceAccount | *Download artifact or see below* |
+          | **OmniPulse Microservices** | https://app.devopsstandard.name.ng | \`${FRONTEND_HOST}\` | *(Public)* | Open Access |
           | **Slack Incident ChatOps** | #${{ vars.SLACK_CHANNEL || 'operational-intelligence' }} | Bot User | ${SLACK_STATUS} |
 
           <details>

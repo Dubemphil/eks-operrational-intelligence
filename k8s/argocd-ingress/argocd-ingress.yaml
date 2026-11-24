@@ -5,21 +5,20 @@ metadata:
   namespace: argocd
   annotations:
     kubernetes.io/ingress.class: "alb"
+    alb.ingress.kubernetes.io/group.name: "omnipulse-dev"
     alb.ingress.kubernetes.io/scheme: "internet-facing"
     alb.ingress.kubernetes.io/target-type: "ip"
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}]'
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: "arn:aws:acm:eu-north-1:323198192259:certificate/5e3fad15-9243-410b-9b19-b42b35c6e9dc"
     alb.ingress.kubernetes.io/backend-protocol: "HTTP"
     alb.ingress.kubernetes.io/healthcheck-path: "/"
     alb.ingress.kubernetes.io/success-codes: "200-399"
 spec:
   ingressClassName: alb
-  defaultBackend:
-    service:
-      name: argocd-server
-      port:
-        number: 80
   rules:
-  - http:
+  - host: argocd.devopsstandard.name.ng
+    http:
       paths:
       - path: /*
         pathType: ImplementationSpecific
