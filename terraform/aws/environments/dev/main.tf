@@ -131,3 +131,13 @@ module "argocd" {
   depends_on = [module.eks]
 }
 
+# 8. Route 53 Hosted Zone, ACM Wildcard Certificate & ExternalDNS IRSA
+module "dns" {
+  source            = "../../modules/dns"
+  domain_name       = var.domain_name
+  environment       = var.environment
+  oidc_provider_arn = module.eks.oidc_provider_arn
+  oidc_provider_url = module.eks.oidc_provider_url
+}
+
+

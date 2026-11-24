@@ -108,3 +108,10 @@ variable "github_pat_token" {
   sensitive   = true
 }
 
+variable "domain_name" {
+  type        = string
+  description = "Root domain name for Route 53 Hosted Zone and ACM certificate"
+  default     = "devopsstandard.name.ng"
+}
+
+

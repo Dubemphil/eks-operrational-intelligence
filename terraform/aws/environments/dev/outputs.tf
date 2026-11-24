@@ -43,3 +43,24 @@ output "github_deployer_role_arn" {
   value       = var.enable_github_oidc ? module.oidc_github[0].github_deployer_role_arn : null
 }
 
+output "route53_zone_id" {
+  description = "Route 53 Hosted Zone ID"
+  value       = module.dns.zone_id
+}
+
+output "route53_name_servers" {
+  description = "Route 53 Nameservers to set in Whogohost"
+  value       = module.dns.name_servers
+}
+
+output "acm_certificate_arn" {
+  description = "ACM Wildcard Certificate ARN"
+  value       = module.dns.acm_certificate_arn
+}
+
+output "external_dns_role_arn" {
+  description = "IRSA Role ARN for ExternalDNS"
+  value       = module.dns.external_dns_role_arn
+}
+
+
