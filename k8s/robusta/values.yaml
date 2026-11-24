@@ -4,6 +4,14 @@ isSmallCluster: false
 
 runner:
   sendAdditionalTelemetry: false
+  extraVolumes:
+    - name: custom-playbooks
+      configMap:
+        name: robusta-custom-playbooks
+  extraVolumeMounts:
+    - name: custom-playbooks
+      mountPath: /etc/robusta/playbooks/storage/omnipulse_playbooks
+      readOnly: true
   serviceAccount:
     create: true
     name: "robusta-runner-service-account"
@@ -57,7 +65,7 @@ customPlaybooks:
       - on_prometheus_alert:
           alert_name: "OldestUnackedMessageAgeHigh"
     actions:
-      - robusta_playbooks.stalled_consumer_playbook:
+      - stalled_consumer_playbook:
           target_deployment: "emailservice"
           target_namespace: "omnipulse-aws-dev"
           max_stalled_seconds: 120
@@ -70,7 +78,7 @@ customPlaybooks:
       - on_prometheus_alert:
           alert_name: "DeadLetterQueueSurge"
     actions:
-      - robusta_playbooks.dlq_poison_pill_playbook:
+      - dlq_poison_pill_playbook:
           target_subscription: "consumer-triage-dlq"
           quarantine_bucket: "s3://omnipulse-quarantine-prod"
           backoff_cooldown_seconds: 60
@@ -82,7 +90,7 @@ customPlaybooks:
       - on_prometheus_alert:
           alert_name: "RateLimit429Surge"
     actions:
-      - robusta_playbooks.vertex_quota_backoff_playbook:
+      - vertex_quota_backoff_playbook:
           target_deployment: "paymentservice"
           target_namespace: "omnipulse-aws-dev"
           cooldown_window_seconds: 180
