@@ -10,7 +10,11 @@ runner:
         name: robusta-custom-playbooks
   extraVolumeMounts:
     - name: custom-playbooks
-      mountPath: /etc/robusta/playbooks/storage/omnipulse_playbooks
+      mountPath: /etc/robusta/playbooks/storage/omnipulse_playbooks/pyproject.toml
+      subPath: pyproject.toml
+      readOnly: true
+    - name: custom-playbooks
+      mountPath: /etc/robusta/playbooks/storage/omnipulse_playbooks/omnipulse_playbooks
       readOnly: true
   serviceAccount:
     create: true
