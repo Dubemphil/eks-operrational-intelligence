@@ -62,43 +62,43 @@ customPlaybooks:
       - restart_loop_reporter: {}
       - rollout_restart: {}
 
-  # Failure Mode 1: Deadlocked / Stalled Consumer (emailservice)
-  - triggers:
-      - on_prometheus_alert:
-          alert_name: "ConsumerTriageStalled"
-      - on_prometheus_alert:
-          alert_name: "OldestUnackedMessageAgeHigh"
-    actions:
-      - stalled_consumer_playbook:
-          target_deployment: "emailservice"
-          target_namespace: "omnipulse-aws-dev"
-          max_stalled_seconds: 120
-          auto_restart_safe: true
+  # Failure Mode 1: Deadlocked / Stalled Consumer (requires pip-installed custom playbook repo)
+  # - triggers:
+  #     - on_prometheus_alert:
+  #         alert_name: "ConsumerTriageStalled"
+  #     - on_prometheus_alert:
+  #         alert_name: "OldestUnackedMessageAgeHigh"
+  #   actions:
+  #     - stalled_consumer_playbook:
+  #         target_deployment: "emailservice"
+  #         target_namespace: "omnipulse-aws-dev"
+  #         max_stalled_seconds: 120
+  #         auto_restart_safe: true
 
-  # Failure Mode 2: Amazon SQS DLQ Backpressure & Poison Pills
-  - triggers:
-      - on_prometheus_alert:
-          alert_name: "PubSubDLQBackpressure"
-      - on_prometheus_alert:
-          alert_name: "DeadLetterQueueSurge"
-    actions:
-      - dlq_poison_pill_playbook:
-          target_subscription: "consumer-triage-dlq"
-          quarantine_bucket: "s3://omnipulse-quarantine-prod"
-          backoff_cooldown_seconds: 60
+  # Failure Mode 2: Amazon SQS DLQ Backpressure & Poison Pills (requires pip-installed custom playbook repo)
+  # - triggers:
+  #     - on_prometheus_alert:
+  #         alert_name: "PubSubDLQBackpressure"
+  #     - on_prometheus_alert:
+  #         alert_name: "DeadLetterQueueSurge"
+  #   actions:
+  #     - dlq_poison_pill_playbook:
+  #         target_subscription: "consumer-triage-dlq"
+  #         quarantine_bucket: "s3://omnipulse-quarantine-prod"
+  #         backoff_cooldown_seconds: 60
 
-  # Failure Mode 3: Amazon Bedrock Quota Backoff
-  - triggers:
-      - on_prometheus_alert:
-          alert_name: "VertexAIQuotaExhausted"
-      - on_prometheus_alert:
-          alert_name: "RateLimit429Surge"
-    actions:
-      - vertex_quota_backoff_playbook:
-          target_deployment: "paymentservice"
-          target_namespace: "omnipulse-aws-dev"
-          cooldown_window_seconds: 180
-          scale_down_step: 1
+  # Failure Mode 3: Amazon Bedrock Quota Backoff (requires pip-installed custom playbook repo)
+  # - triggers:
+  #     - on_prometheus_alert:
+  #         alert_name: "VertexAIQuotaExhausted"
+  #     - on_prometheus_alert:
+  #         alert_name: "RateLimit429Surge"
+  #   actions:
+  #     - vertex_quota_backoff_playbook:
+  #         target_deployment: "paymentservice"
+  #         target_namespace: "omnipulse-aws-dev"
+  #         cooldown_window_seconds: 180
+  #         scale_down_step: 1
 
   # Failure Mode 4: Storefront HTTP 5xx Outage Surge Auto-Remediation
   - triggers:
