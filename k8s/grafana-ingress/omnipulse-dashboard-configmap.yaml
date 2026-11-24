@@ -1,0 +1,289 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: omnipulse-operational-intelligence-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  omnipulse-overview.json: |
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "green", "value": 1 }
+                ]
+              }
+            }
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+          "id": 1,
+          "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "targets": [
+            {
+              "expr": "sum(kube_pod_status_phase{namespace=~\"omnipulse-.*\", phase=\"Running\"})",
+              "legendFormat": "Running",
+              "refId": "A"
+            }
+          ],
+          "title": "OmniPulse Running Pods",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "orange", "value": 1 },
+                  { "color": "red", "value": 5 }
+                ]
+              }
+            }
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
+          "id": 2,
+          "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "targets": [
+            {
+              "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=~\"omnipulse-.*|robusta|argocd\"}[1h])) or vector(0)",
+              "legendFormat": "Restarts",
+              "refId": "A"
+            }
+          ],
+          "title": "Pod Restarts (1h)",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "red", "value": 1 }
+                ]
+              }
+            }
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
+          "id": 3,
+          "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "targets": [
+            {
+              "expr": "sum(kube_deployment_status_replicas_unavailable{namespace=~\"omnipulse-.*\"}) or vector(0)",
+              "legendFormat": "Unavailable",
+              "refId": "A"
+            }
+          ],
+          "title": "Unavailable Replicas",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "red", "value": null },
+                  { "color": "green", "value": 1 }
+                ]
+              }
+            }
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
+          "id": 4,
+          "options": { "colorMode": "value", "graphMode": "none", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "targets": [
+            {
+              "expr": "sum(kube_node_status_condition{condition=\"Ready\", status=\"true\"})",
+              "legendFormat": "Ready Nodes",
+              "refId": "A"
+            }
+          ],
+          "title": "EKS Ready Nodes",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "decimals": 1,
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "orange", "value": 70 },
+                  { "color": "red", "value": 85 }
+                ]
+              }
+            }
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
+          "id": 5,
+          "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "targets": [
+            {
+              "expr": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+              "legendFormat": "CPU %",
+              "refId": "A"
+            }
+          ],
+          "title": "Cluster CPU Utilization",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "decimals": 1,
+              "color": { "mode": "thresholds" },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  { "color": "green", "value": null },
+                  { "color": "orange", "value": 75 },
+                  { "color": "red", "value": 90 }
+                ]
+              }
+            }
+          },
+          "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
+          "id": 6,
+          "options": { "colorMode": "value", "graphMode": "area", "reduceOptions": { "calcs": ["lastNotNull"] } },
+          "targets": [
+            {
+              "expr": "100 * (1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes))",
+              "legendFormat": "Memory %",
+              "refId": "A"
+            }
+          ],
+          "title": "Cluster Memory Utilization",
+          "type": "stat"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15 } }
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+          "id": 7,
+          "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] } },
+          "targets": [
+            {
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=~\"omnipulse-.*\", container!=\"\", container!=\"POD\"}[5m])) by (pod)",
+              "legendFormat": "{{pod}}",
+              "refId": "A"
+            }
+          ],
+          "title": "OmniPulse Microservices CPU Usage (Cores)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "unit": "bytes", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15 } }
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+          "id": 8,
+          "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] } },
+          "targets": [
+            {
+              "expr": "sum(container_memory_working_set_bytes{namespace=~\"omnipulse-.*\", container!=\"\", container!=\"POD\"}) by (pod)",
+              "legendFormat": "{{pod}}",
+              "refId": "A"
+            }
+          ],
+          "title": "OmniPulse Microservices Memory Working Set",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 20 } }
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+          "id": 9,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=~\"argocd|monitoring|headlamp|robusta\", container!=\"\", container!=\"POD\"}[5m])) by (namespace)",
+              "legendFormat": "{{namespace}}",
+              "refId": "A"
+            }
+          ],
+          "title": "Platform & AIOps Stack CPU by Namespace",
+          "type": "timeseries"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "fieldConfig": {
+            "defaults": { "unit": "Bps", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 15 } }
+          },
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
+          "id": 10,
+          "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+          "targets": [
+            {
+              "expr": "sum(rate(container_network_receive_bytes_total{namespace=~\"omnipulse-.*\"}[5m])) by (pod)",
+              "legendFormat": "RX {{pod}}",
+              "refId": "A"
+            },
+            {
+              "expr": "-sum(rate(container_network_transmit_bytes_total{namespace=~\"omnipulse-.*\"}[5m])) by (pod)",
+              "legendFormat": "TX {{pod}}",
+              "refId": "B"
+            }
+          ],
+          "title": "Microservices Network I/O (Bytes/sec)",
+          "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 39,
+      "style": "dark",
+      "tags": ["omnipulse", "eks", "kubernetes", "operational-intelligence"],
+      "templating": { "list": [] },
+      "time": { "from": "now-1h", "to": "now" },
+      "timezone": "browser",
+      "title": "OmniPulse Operational Intelligence Overview",
+      "uid": "omnipulse-overview-01",
+      "version": 1
+    }
+

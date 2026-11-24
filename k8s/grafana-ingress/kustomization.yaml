@@ -5,6 +5,7 @@ namespace: monitoring
 
 resources:
   - grafana-ingress.yaml
+  - omnipulse-dashboard-configmap.yaml
 
 labels:
   - pairs:

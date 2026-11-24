@@ -246,6 +246,7 @@ jobs:
           helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack \
             --namespace monitoring --create-namespace \
             --set grafana.adminPassword="prom-operator"
+          kubectl apply -f k8s/grafana-ingress/omnipulse-dashboard-configmap.yaml
           for i in {1..6}; do
             if kubectl apply -f k8s/grafana-ingress/grafana-ingress.yaml; then
               echo "✅ Grafana Ingress deployed successfully!"
