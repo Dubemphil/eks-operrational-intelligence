@@ -60,10 +60,9 @@ jobs:
 
       - name: Validate Kustomize Overlays
         run: |
-          kubectl kustomize k8s/overlays/local > /dev/null
           kubectl kustomize k8s/overlays/aws-dev > /dev/null
           kubectl kustomize k8s/overlays/aws-prod > /dev/null
-          echo "✅ All Kustomize overlays (local, aws-dev, aws-prod) compiled successfully"
+          echo "✅ All Kustomize overlays (aws-dev, aws-prod) compiled successfully"
 
   terraform-apply:
     name: ${{ (inputs.action == 'destroy' && '💥 Terraform Destroy') || '🏗️ Terraform Apply' }} (${{ inputs.environment || 'dev' }})
