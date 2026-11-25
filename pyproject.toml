@@ -8,5 +8,11 @@ version = "0.1.0"
 description = "OmniPulse AIOps Custom Robusta Playbooks"
 requires-python = ">=3.9"
 
+[tool.poetry]
+name = "omnipulse_playbooks"
+version = "0.1.0"
+description = "OmniPulse AIOps Custom Robusta Playbooks"
+authors = ["OmniPulse"]
+
 [tool.setuptools]
 packages = ["omnipulse_playbooks"]
