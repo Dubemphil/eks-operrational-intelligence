@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omnipulse-playbooks"
+version = "0.1.0"
+description = "OmniPulse AIOps Custom Robusta Playbooks"
+requires-python = ">=3.9"
+
+[tool.setuptools]
+packages = ["omnipulse_playbooks"]
+
+[tool.setuptools.package-dir]
+omnipulse_playbooks = "k8s/robusta/playbooks"
