@@ -110,6 +110,8 @@ Unlike a single-service workload where serverless containers (ECS Fargate) suffi
 
 ### 1. End-to-End Platform Topology
 
+![OmniPulse AWS EKS Architecture Diagram](doc-images/architecture-diagram.jpg)
+
 ```mermaid
 flowchart TD
     User["End Users & Engineers"] -->|HTTPS 443| R53["Route 53 + ACM Wildcard TLS"]
