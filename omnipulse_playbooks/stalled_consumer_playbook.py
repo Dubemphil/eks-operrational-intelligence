@@ -10,6 +10,7 @@ import logging
 import datetime
 from robusta.api import (
     action,
+    ActionParams,
     ExecutionBaseEvent,
     MarkdownBlock,
     HeaderBlock,
@@ -28,17 +29,28 @@ logger = logging.getLogger("robusta")
 diagnostics = AIOpsDiagnostics()
 audit_logger = AuditLogger()
 
-@action
-def stalled_consumer_playbook(
-    event: ExecutionBaseEvent,
-    target_deployment: str = "emailservice",
-    target_namespace: str = "omnipulse-dev",
-    max_stalled_seconds: int = 120,
+
+class StalledConsumerParams(ActionParams):
+    target_deployment: str = "emailservice"
+    target_namespace: str = "omnipulse-aws-dev"
+    max_stalled_seconds: int = 120
     auto_restart_safe: bool = True
-):
+
+
+class ExecuteConsumerRestartParams(ActionParams):
+    target_deployment: str = "emailservice"
+    target_namespace: str = "omnipulse-aws-dev"
+
+
+@action
+def stalled_consumer_playbook(event: ExecutionBaseEvent, params: StalledConsumerParams):
     """
     Executes triage and idempotent remediation for stalled Pub/Sub streaming consumers.
     """
+    target_deployment = params.target_deployment
+    target_namespace = params.target_namespace
+    max_stalled_seconds = params.max_stalled_seconds
+    auto_restart_safe = params.auto_restart_safe
     logger.info(f"Triggered stalled_consumer_playbook for {target_deployment} in {target_namespace}")
 
     # 1. Gather Telemetry (Pod logs and k8s events)
@@ -89,7 +101,10 @@ def stalled_consumer_playbook(
             CallbackBlock({
                 "Confirm Rollout Restart": CallbackChoice(
                     action=execute_consumer_restart,
-                    action_params={"target_deployment": target_deployment, "target_namespace": target_namespace}
+                    action_params=ExecuteConsumerRestartParams(
+                        target_deployment=target_deployment,
+                        target_namespace=target_namespace,
+                    )
                 )
             })
         ])
@@ -108,8 +123,10 @@ def stalled_consumer_playbook(
     event.add_finding(finding)
 
 @action
-def execute_consumer_restart(event: ExecutionBaseEvent, target_deployment: str, target_namespace: str):
+def execute_consumer_restart(event: ExecutionBaseEvent, params: ExecuteConsumerRestartParams):
     """Callback executed when Elena clicks the interactive button in Slack."""
+    target_deployment = params.target_deployment
+    target_namespace = params.target_namespace
     logger.info(f"Elena confirmed HITL restart for {target_deployment}")
     
     # Audit human confirmation
@@ -127,7 +144,7 @@ def execute_consumer_restart(event: ExecutionBaseEvent, target_deployment: str, 
         title=f"✅ Consumer Restart Succeeded: `{target_deployment}`",
         source="OperationalIntelligenceEngine",
         severity=FindingSeverity.INFO,
-        finding_type=FindingType.CONFIRMATION,
+        finding_type=FindingType.CONF_CHANGE,
         aggregation_key=f"stalled-{target_deployment}"
     )
     finding.add_enrichment([

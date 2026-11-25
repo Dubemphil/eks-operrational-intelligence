@@ -9,6 +9,7 @@ MTTR Target: < 5 minutes
 import logging
 from robusta.api import (
     action,
+    ActionParams,
     ExecutionBaseEvent,
     MarkdownBlock,
     HeaderBlock,
@@ -24,18 +25,24 @@ logger = logging.getLogger("robusta")
 diagnostics = AIOpsDiagnostics()
 audit_logger = AuditLogger()
 
-@action
-def vertex_quota_backoff_playbook(
-    event: ExecutionBaseEvent,
-    target_deployment: str = "paymentservice",
-    target_namespace: str = "omnipulse-aws-dev",
-    cooldown_window_seconds: int = 180,
+
+class VertexQuotaBackoffParams(ActionParams):
+    target_deployment: str = "paymentservice"
+    target_namespace: str = "omnipulse-aws-dev"
+    cooldown_window_seconds: int = 180
     scale_down_step: int = 1
-):
+
+
+@action
+def vertex_quota_backoff_playbook(event: ExecutionBaseEvent, params: VertexQuotaBackoffParams):
     """
     Handles transient 429 ThrottlingException errors on Amazon Bedrock / LLM APIs by dynamically
     throttling batch worker concurrency and applying exponential backoff.
     """
+    target_deployment = params.target_deployment
+    target_namespace = params.target_namespace
+    cooldown_window_seconds = params.cooldown_window_seconds
+    scale_down_step = params.scale_down_step
     logger.info(f"Triggered bedrock_quota_backoff_playbook for {target_deployment}")
 
     logs = "[ERROR] BedrockClientError: 429 ThrottlingException: Rate exceeded for model invoke_model token count per minute."

@@ -8,6 +8,7 @@ MTTR Target: < 5 minutes
 import logging
 from robusta.api import (
     action,
+    ActionParams,
     ExecutionBaseEvent,
     MarkdownBlock,
     HeaderBlock,
@@ -23,16 +24,21 @@ logger = logging.getLogger("robusta")
 diagnostics = AIOpsDiagnostics()
 audit_logger = AuditLogger()
 
-@action
-def dlq_poison_pill_playbook(
-    event: ExecutionBaseEvent,
-    target_subscription: str = "consumer-triage-dlq",
-    quarantine_bucket: str = "s3://omnipulse-dlq-quarantine-prod",
+
+class DlqPoisonPillParams(ActionParams):
+    target_subscription: str = "consumer-triage-dlq"
+    quarantine_bucket: str = "s3://omnipulse-dlq-quarantine-prod"
     backoff_cooldown_seconds: int = 60
-):
+
+
+@action
+def dlq_poison_pill_playbook(event: ExecutionBaseEvent, params: DlqPoisonPillParams):
     """
     Triage poison-pill events, classify schema violations via Amazon Bedrock, and route to S3 quarantine.
     """
+    target_subscription = params.target_subscription
+    quarantine_bucket = params.quarantine_bucket
+    backoff_cooldown_seconds = params.backoff_cooldown_seconds
     logger.info(f"Triggered dlq_poison_pill_playbook for queue: {target_subscription}")
 
     # Simulated sample malformed payload from DLQ head
