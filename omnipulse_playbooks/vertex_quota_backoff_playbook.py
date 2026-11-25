@@ -14,6 +14,7 @@ from robusta.api import (
     MarkdownBlock,
     HeaderBlock,
     Finding,
+    FindingSource,
     FindingType,
     FindingSeverity,
 )
@@ -58,7 +59,7 @@ def vertex_quota_backoff_playbook(event: ExecutionBaseEvent, params: VertexQuota
 
     finding = Finding(
         title=f"📉 Vertex AI API Quota Backoff Applied: `{target_deployment}`",
-        source="OperationalIntelligenceEngine",
+        source=FindingSource.PROMETHEUS,
         severity=FindingSeverity.MEDIUM, # Downgraded from high-severity pager to prevent 2:00 AM wake-up
         finding_type=FindingType.ISSUE,
         aggregation_key=f"quota-{target_deployment}"

@@ -18,6 +18,7 @@ from robusta.api import (
     CallbackBlock,
     CallbackChoice,
     Finding,
+    FindingSource,
     FindingType,
     FindingSeverity,
 )
@@ -70,7 +71,7 @@ def stalled_consumer_playbook(event: ExecutionBaseEvent, params: StalledConsumer
     # 3. Create Robusta Finding for Slack ChatOps
     finding = Finding(
         title=f"🚨 Operational Incident: Stalled Consumer Detected on `{target_deployment}`",
-        source="OperationalIntelligenceEngine",
+        source=FindingSource.PROMETHEUS,
         severity=FindingSeverity.HIGH,
         finding_type=FindingType.ISSUE,
         aggregation_key=f"stalled-{target_deployment}"
@@ -142,7 +143,7 @@ def execute_consumer_restart(event: ExecutionBaseEvent, params: ExecuteConsumerR
 
     finding = Finding(
         title=f"✅ Consumer Restart Succeeded: `{target_deployment}`",
-        source="OperationalIntelligenceEngine",
+        source=FindingSource.PROMETHEUS,
         severity=FindingSeverity.INFO,
         finding_type=FindingType.CONF_CHANGE,
         aggregation_key=f"stalled-{target_deployment}"

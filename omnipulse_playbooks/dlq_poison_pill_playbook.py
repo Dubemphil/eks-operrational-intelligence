@@ -13,6 +13,7 @@ from robusta.api import (
     MarkdownBlock,
     HeaderBlock,
     Finding,
+    FindingSource,
     FindingType,
     FindingSeverity,
 )
@@ -57,7 +58,7 @@ def dlq_poison_pill_playbook(event: ExecutionBaseEvent, params: DlqPoisonPillPar
 
     finding = Finding(
         title=f"⚠️ Amazon SQS DLQ Backpressure: Poison Pill Detected on `{target_subscription}`",
-        source="OperationalIntelligenceEngine",
+        source=FindingSource.PROMETHEUS,
         severity=FindingSeverity.HIGH,
         finding_type=FindingType.ISSUE,
         aggregation_key=f"dlq-{target_subscription}"
