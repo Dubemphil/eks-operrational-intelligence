@@ -263,12 +263,6 @@ jobs:
 
       - name: Deploy Robusta OSS AIOps Engine
         run: |
-          echo "==> Syncing Robusta custom playbooks ConfigMap..."
-          kubectl create namespace robusta --dry-run=client -o yaml | kubectl apply -f -
-          kubectl -n robusta create configmap robusta-custom-playbooks \
-            --from-file=k8s/robusta/playbooks/ \
-            --dry-run=client -o yaml | kubectl apply -f -
-
           echo "==> Deploying Robusta AIOps Engine..."
           helm repo add robusta https://robusta-charts.storage.googleapis.com
           helm repo update
